@@ -1,6 +1,0 @@
-1. die drei Dateien öffnen. app.py, dashboard_server.py  & Dashboard.html
-2. im Terminal python -m pip install pandas numpy flask yfinance scikit-learn
-3. Run app.py
-4. Run dashboard_server.py
-
-5.verlassen mit CTRL + C
