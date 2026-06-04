@@ -263,7 +263,13 @@
         <span style="font-family:var(--mono);font-size:12px;color:var(--sub);">€</span>
       </div>
       <div style="font-size:10px;color:var(--sub);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;">Aktien &amp; Gewichtung (%)</div>
-      <div class="portfolio-stocks" id="portfolioStocks"></div>
+     <div class="portfolio-stocks" id="portfolioStocks"></div>
+      <div id="weightIndicator" style="margin-bottom:12px;display:flex;align-items:center;gap:10px;">
+        <div style="flex:1;background:var(--border);border-radius:4px;height:8px;overflow:hidden;">
+          <div id="weightBar" style="height:8px;border-radius:4px;transition:width .3s,background .3s;width:100%;background:var(--green);"></div>
+        </div>
+        <span id="weightLabel" style="font-family:var(--mono);font-size:11px;color:var(--sub);white-space:nowrap;">100% ✓</span>
+      </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <input type="text" id="portfolioTickerInput" placeholder="Ticker" maxlength="7"
           style="background:var(--white);border:1px solid var(--border2);color:var(--text);padding:6px 10px;font-family:var(--mono);font-size:12px;border-radius:5px;outline:none;width:90px;text-transform:uppercase;"
@@ -650,12 +656,29 @@ async function loadCompare(){
 
 // ── TAB 4: PORTFOLIO ────────────────────────
 let portfolioStocks=[{ticker:'AAPL',weight:50},{ticker:'BMW.DE',weight:50}];
-function renderPortfolioStocks(){document.getElementById('portfolioStocks').innerHTML=portfolioStocks.map((s,i)=>`<div class="stock-chip" style="border-left:3px solid ${COLORS[i%COLORS.length]}"><span style="font-weight:500">${s.ticker}</span><input type="number" value="${s.weight}" min="1" max="100" onchange="portfolioStocks[${i}].weight=+this.value"/><span style="color:var(--sub);font-size:11px">%</span><span class="remove" onclick="removePortfolioStock(${i})">×</span></div>`).join('');}
+function updateWeightBar(){
+  const total=portfolioStocks.reduce((a,s)=>a+s.weight,0);
+  const bar=document.getElementById('weightBar');
+  const lbl=document.getElementById('weightLabel');
+  if(!bar)return;
+  const pct=Math.min(total,100);
+  bar.style.width=pct+'%';
+  if(total===100){bar.style.background='var(--green)';lbl.style.color='var(--green)';lbl.textContent='100% ✓';}
+  else if(total<100){bar.style.background='var(--amber)';lbl.style.color='var(--amber)';lbl.textContent=total+'% ('+(100-total)+' fehlen)';}
+  else{bar.style.background='var(--red)';lbl.style.color='var(--red)';lbl.textContent=total+'% ✗ Über 100%!';}
+}
+function renderPortfolioStocks(){document.getElementById('portfolioStocks').innerHTML=portfolioStocks.map((s,i)=>`<div class="stock-chip" style="border-left:3px solid ${COLORS[i%COLORS.length]}"><span style="font-weight:500">${s.ticker}</span><input type="number" value="${s.weight}" min="1" max="100" onchange="portfolioStocks[${i}].weight=+this.value;updateWeightBar()"/><span style="color:var(--sub);font-size:11px">%</span><span class="remove" onclick="removePortfolioStock(${i})">×</span></div>`).join('');updateWeightBar();}
 function addPortfolioStock(){const t=(document.getElementById('portfolioTickerInput').value||'').toUpperCase().trim();if(t&&!portfolioStocks.find(s=>s.ticker===t)&&portfolioStocks.length<7){portfolioStocks.push({ticker:t,weight:Math.floor(100/(portfolioStocks.length+1))});document.getElementById('portfolioTickerInput').value='';renderPortfolioStocks();}}
 function removePortfolioStock(i){portfolioStocks.splice(i,1);renderPortfolioStocks();}
 async function calcPortfolio(){
   const startCapital=+document.getElementById('startCapital').value||1000;
   const totalWeight=portfolioStocks.reduce((a,s)=>a+s.weight,0);
+  if(totalWeight!==100){
+    document.getElementById('portfolioResults').innerHTML=`<div style="grid-column:1/-1;background:var(--red-bg);border:1px solid var(--red);border-radius:8px;padding:16px;font-family:var(--mono);font-size:12px;color:var(--red);">✗ Gewichtung ergibt ${totalWeight}% — bitte auf genau 100% anpassen (aktuell ${totalWeight>100?totalWeight-100+' zu viel':100-totalWeight+' zu wenig'}).</div>`;
+    document.getElementById('portfolioChartCard').style.display='none';
+    document.getElementById('portfolioAllocationCard').style.display='none';
+    return;
+  }
   const allData=await Promise.all(portfolioStocks.map(s=>fetchTicker(s.ticker,252)));
   const minLen=Math.min(...allData.map(d=>d.prices.length));
   const labels=allData[0].dates.slice(-minLen).map(d=>new Date(d).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}));
