@@ -1,121 +1,194 @@
-# 📈 Finanz-Dashboard – DAV Projekt
+# Projekt-DAV — Feature-Engineering & Datenaufbereitung für Finanzzeitreihen
 
-Ein datengetriebenes Analyse-Dashboard für Aktienmärkte mit Machine-Learning-Vorhersagen, technischen Indikatoren und interaktiver Visualisierung.
+Modul **Datenverarbeitung und -bereinigung** · Thema 015 · SS 2026
 
----
-
-## 🗂️ Projektstruktur
-
-```
-Projekt-DAV/
-├── app.py                  # Datenpipeline (Laden, Bereinigung, ML)
-├── dashboard_server.py     # Flask-Server mit REST-API
-├── dashboard.html          # Interaktives Web-Dashboard
-├── finance.db              # SQLite-Datenbank (wird automatisch erstellt)
-└── README.md
-```
+Automatisierte Pipeline für historische Aktiendaten (Yahoo Finance API): Laden → Bereinigen → Feature-Engineering → Ausreißer-Erkennung → ML-Vorhersagemodell → interaktives Finanz-Dashboard.
 
 ---
 
-## ⚙️ Installation & Start
+## Inhaltsverzeichnis
 
-### Voraussetzungen
-- Python 3.8+
+- [Überblick](#überblick)
+- [Architektur](#architektur)
+- [Installation](#installation)
+- [Nutzung](#nutzung)
+- [Projektstruktur](#projektstruktur)
+- [Methodik](#methodik)
+  - [Datenbereinigung](#datenbereinigung)
+  - [Feature Engineering](#feature-engineering)
+  - [Ausreißer-Erkennung](#ausreißer-erkennung)
+  - [ML-Vorhersagemodell](#ml-vorhersagemodell)
+  - [Statistische Analyse](#statistische-analyse-analysepy)
+- [Dashboard](#dashboard)
+- [Datenbankschema](#datenbankschema)
+- [Bekannte Einschränkungen](#bekannte-einschränkungen)
+- [Autorinnen](#autorinnen)
 
-### Schritt 1 – Abhängigkeiten installieren
-```bash
-python -m pip install pandas numpy flask yfinance scikit-learn
+---
+
+## Überblick
+
+Rohe Aktienkurse sind für Analysen und ML-Modelle in ihrer Rohform ungeeignet: fehlende Handelstage, Ausreißer und ein nicht-stationärer Trend verfälschen Ergebnisse. Dieses Projekt implementiert eine vollständige Datenpipeline, die:
+
+1. echte historische OHLCV-Daten von Yahoo Finance lädt (`yfinance`),
+2. sie realistisch bereinigt (keine Dummy-Daten, nachvollziehbare Interpolation),
+3. daraus 18+ technische Indikatoren berechnet,
+4. Ausreißer mit zwei unabhängigen Verfahren (Isolation Forest + Random Forest) erkennt,
+5. ein Random-Forest-Klassifikationsmodell auf ausschließlich stationären Features trainiert,
+6. alle Ergebnisse in SQLite persistiert,
+7. und über ein interaktives Web-Dashboard zugänglich macht.
+
+Ergänzend liefert `analyse.py` die statistische Tiefe (deskriptive Statistik, Stationaritätstests, Autokorrelation, ARIMA, empirischer Rohdaten-vs-stationär-Vergleich).
+
+## Architektur
+
+```
+yfinance API
+     │
+     ▼
+┌─────────────┐     ┌──────────────┐     ┌────────────────┐
+│   app.py    │────▶│  finance.db  │◀────│   analyse.py    │
+│  Pipeline   │     │   (SQLite)   │     │  Statistik/Plots │
+└─────────────┘     └──────┬───────┘     └────────────────┘
+                            │
+                            ▼
+                  ┌───────────────────┐
+                  │ dashboard_server.py│
+                  │   Flask REST-API   │
+                  └─────────┬──────────┘
+                            │
+                            ▼
+                  ┌───────────────────┐
+                  │  dashboard.html    │
+                  │  (Browser-Frontend)│
+                  └───────────────────┘
 ```
 
-### Schritt 2 – Datenpipeline ausführen
+Vollständig lokal, keine Cloud-Abhängigkeiten, keine Kosten außer dem kostenlosen Yahoo-Finance-Zugriff.
+
+**Tech-Stack:** Python · pandas · NumPy · scikit-learn · statsmodels · SQLite · Flask · Chart.js
+
+## Installation
+
 ```bash
+# Repository klonen
+git clone https://github.com/emmasch937/Projekt-DAV.git
+cd Projekt-DAV
+
+# Abhängigkeiten installieren
+pip install pandas numpy scikit-learn statsmodels matplotlib yfinance flask
+```
+
+## Nutzung
+
+Die drei Skripte bauen aufeinander auf und müssen in dieser Reihenfolge ausgeführt werden:
+
+```bash
+# 1. Pipeline: Daten laden, bereinigen, Features berechnen, ML-Modell trainieren
 python app.py
-```
-Dies lädt alle Aktiendaten, berechnet Features und trainiert das ML-Modell.  
-Die Ergebnisse werden in `finance.db` gespeichert. *(Kann einige Minuten dauern)*
 
-### Schritt 3 – Dashboard starten
-```bash
+# 2. Optional: statistische Tiefenanalyse + Plots für einen einzelnen Ticker
+python analyse.py
+
+# 3. Dashboard starten
 python dashboard_server.py
-```
-Dann im Browser öffnen: **http://localhost:5000**
-
----
-
-## 🔍 Wie funktioniert das Projekt?
-
-### 1. Datenpipeline (`app.py`)
-
-Die Pipeline läuft in 6 Schritten:
-
-| Schritt | Beschreibung |
-|---------|-------------|
-| **1. Daten laden** | Historische Aktienkurse via Yahoo Finance (`yfinance`) für bis zu 1 Jahr |
-| **2. Datenbereinigung** | Entfernung von Duplikaten, Ausreißern in OHLCV-Daten, Forward-Fill für fehlende Werte |
-| **3. Feature Engineering** | Berechnung von 18+ technischen Indikatoren (siehe unten) |
-| **4. Ausreißer-Erkennung** | Isolation Forest + Random Forest zur Erkennung anomaler Handelstage |
-| **5. ML-Modell** | Random Forest Klassifikation zur Vorhersage der nächsten Kursbewegung |
-| **6. Speicherung** | Alle Ergebnisse werden in einer SQLite-Datenbank gespeichert |
-
-### 2. Technische Indikatoren (Feature Engineering)
-
-| Kategorie | Indikator | Beschreibung |
-|-----------|-----------|-------------|
-| **Renditen** | Log Return, Return 5d/21d | Tages- und Mehrtagsrenditen |
-| **Trend** | MA20, MA50, EMA12, EMA26 | Gleitende Durchschnitte |
-| **Momentum** | MACD, MACD-Signal, RSI(14), Momentum(10) | Trendstärke und Umkehrsignale |
-| **Volatilität** | Volatility 20d, ATR(14), Bollinger Bänder | Schwankungsbreite |
-| **Volumen** | OBV, Volume Ratio, Vol Z-Score | Handelsvolumen-Analyse |
-
-### 3. Machine Learning
-
-- **Modell:** Random Forest Classifier (200 Estimatoren)
-- **Ziel:** Vorhersage ob der Kurs am nächsten Tag steigt (1) oder fällt (0)
-- **Validierung:** TimeSeriesSplit (5 Folds) – kein Data Leakage
-- **Output:** Accuracy, Precision, Recall, Feature Importance, Backtest-Kurve
-
-### 4. Dashboard-Server (`dashboard_server.py`)
-
-Ein leichtgewichtiger Flask-Server stellt die Daten als REST-API bereit:
-
-| Endpoint | Beschreibung |
-|----------|-------------|
-| `GET /` | Lädt das interaktive Dashboard |
-| `GET /api/tickers` | Liste aller verfügbaren Aktien |
-| `GET /api/data/<ticker>` | Historische Daten (Standard: 252 Tage) |
-| `GET /api/data/<ticker>/<days>` | Historische Daten mit eigener Zeitspanne |
-| `GET /api/summary/<ticker>` | Aktuelle Kennzahlen inkl. Tagesveränderung |
-| `GET /api/ml/<ticker>` | ML-Ergebnisse, Feature Importance, Backtest |
-
----
-
-## 📊 Enthaltene Aktien
-
-```python
-TICKERS = [
-    "AAPL", "MSFT", "TSLA", "GOOG", "META", "AMZN", "NFLX",   # US Tech
-    "COIN", "PLTR", "AMC", "GME",                                # Spezial
-    "BMW.DE", "SAP.DE", "SIE.DE", "ALV.DE",                     # DAX
-    "DTE.DE", "VOW3.DE", "MBG.DE", "BAYN.DE", "DBK.DE", "NVDA" # DAX + NVDA
-]
+# → http://localhost:5000 im Browser öffnen
 ```
 
-Eigene Aktien können einfach in `app.py` in der `TICKERS`-Liste ergänzt werden.
+`app.py` befüllt `finance.db` neu (Standard-Tickerliste ist im Skript unter `TICKERS` definiert und kann angepasst werden). `analyse.py` liest ausschließlich aus der bereits befüllten Datenbank und muss daher **nach** `app.py` laufen.
 
----
+## Projektstruktur
 
-## 🛠️ Technologien
+| Datei | Zweck |
+|---|---|
+| `app.py` | Hauptpipeline: Datenladen, Bereinigung, Feature-Engineering, Ausreißer-Erkennung, ML-Training, DB-Speicherung |
+| `analyse.py` | Statistische Tiefenanalyse: deskriptive Statistik, Stationaritätstests, ACF/PACF, ARIMA, Rohdaten-vs-stationär-Vergleich, Plots |
+| `dashboard_server.py` | Flask-Server, stellt `finance.db` als JSON-REST-API bereit und liefert das Frontend aus |
+| `dashboard.html` | Interaktives Frontend (4 Tabs: Kursanalyse, ML-Vorhersage, Rendite-Vergleich, Portfolio-Simulator) |
+| `finance.db` | SQLite-Datenbank (wird von `app.py` erzeugt) |
 
-![Python](https://img.shields.io/badge/Python-3.8+-blue?logo=python)
-![Flask](https://img.shields.io/badge/Flask-REST--API-lightgrey?logo=flask)
-![scikit-learn](https://img.shields.io/badge/scikit--learn-ML-orange?logo=scikit-learn)
-![SQLite](https://img.shields.io/badge/SQLite-Datenbank-blue?logo=sqlite)
-![yfinance](https://img.shields.io/badge/yfinance-Marktdaten-green)
+## Methodik
 
----
+### Datenbereinigung
 
-## 📝 Hinweise
+Umgesetzt in `clean_data()` (`app.py`). Da die Yahoo-Finance-Anbindung zeitweise unvollständige Daten liefert, wird bewusst **nicht** stillschweigend mit Platzhaltern aufgefüllt:
 
-- Die Datei `finance.db` wird automatisch erstellt und muss **nicht** manuell angelegt werden
-- Ohne `yfinance` werden automatisch realistische Dummy-Daten generiert
-- Das ML-Modell ist zu Analysezwecken erstellt und stellt **keine Anlageberatung** dar
+1. Duplikate und ungültige Zeilen (negatives Volumen) entfernen
+2. Lückenlosen Werktags-Kalender herstellen, damit fehlende Handelstage überhaupt sichtbar werden
+3. Unrealistische Kurssprünge (>50 %) werden als Fehler **markiert** (NaN gesetzt), nicht direkt verworfen
+4. Zeitliche Interpolation (`limit=3`) füllt nur kurze Lücken; längere Ausfälle bleiben NaN und werden verworfen statt mit dem letzten bekannten Wert „eingefroren“
+5. Fehlendes Volumen wird über den gleitenden 5-Tage-Median ersetzt (robust gegenüber Ausreißern)
+6. OHLC-Konsistenz (High ≥ Low, High ≥ max(Open, Close) usw.) wird **erst nach** dem Füllen geprüft
+
+### Feature Engineering
+
+`compute_features()` berechnet u. a.:
+
+- **Rendite:** `log_return`, `return_5d`, `return_21d`
+- **Trend:** `ma_20`, `ma_50`, `ema_12`, `ema_26`, `macd`, `macd_signal`
+- **Volatilität:** `volatility_20d` (annualisiert), Bollinger-Bänder, `atr_14`
+- **Momentum/Volumen:** `rsi_14`, `momentum_10`, `volume_ratio`, `obv`
+
+Insgesamt 18+ Indikatoren, gespeichert als 30 Spalten pro Ticker und Handelstag.
+
+### Ausreißer-Erkennung
+
+Zwei komplementäre Verfahren in `detect_outliers()`:
+
+- **Isolation Forest** (unüberwacht, `contamination=0.05`) — isoliert anomale Punkte ohne Labels
+- **Random Forest** (überwacht) — trainiert auf statistisch definierten Ausreißern (>2σ bei Return/Volumen, RSI <20 oder >80), liefert zusätzlich Feature Importance und eine Wahrscheinlichkeit pro Tag
+
+Jeder erkannte Ausreißertag erhält eine lesbare Begründung (`outlier_reason`, z. B. „Kurseinbruch ↓ (-5.1 %)“).
+
+### ML-Vorhersagemodell
+
+`train_ml_model()` trainiert einen Random-Forest-Klassifikator, der vorhersagt, ob der Kurs am nächsten Handelstag steigt.
+
+- **Nur stationäre Features** (Log-Returns, RSI, MACD, Bollinger-Position, z-normierte Werte …) — nie absolute Preise, da diese einen Trend enthalten und das Modell sonst nur das Preisniveau memoriert statt Muster zu lernen
+- **`TimeSeriesSplit`** statt zufälligem Split, um Data Leakage aus der Zukunft zu vermeiden
+- Ergebnisse (Accuracy, Precision, Recall, Feature Importance, Backtest gegen Buy-and-Hold) werden pro Ticker in der Tabelle `ml_results` gespeichert
+
+### Statistische Analyse (`analyse.py`)
+
+Ergänzt die Pipeline um:
+
+- Deskriptive Statistik (Mittelwert, Median, Varianz, Schiefe, Kurtosis)
+- Fehlende-Werte-Analyse mit Einordnung nach MCAR/MAR/MNAR
+- Stationaritätstests: ADF, KPSS, Phillips-Perron (jeweils für rohen Kurs, Log-Returns, 1. Differenz)
+- Autokorrelation (ACF/PACF) zur Einordnung als AR-/MA-Prozess
+- ARIMA/ARMA-Modellierung mit automatischer Ordnungswahl nach AIC und Prognose mit Konfidenzintervall
+- Empirischer Vergleich Random Forest auf Rohdaten vs. stationären Features (Train/Test-Accuracy-Lücke als Overfitting-Indikator)
+
+Alle Plots werden automatisch im Ordner `plots/` gespeichert.
+
+## Dashboard
+
+`dashboard_server.py` stellt folgende Endpunkte bereit:
+
+| Endpunkt | Beschreibung |
+|---|---|
+| `GET /api/tickers` | Liste aller verfügbaren Ticker |
+| `GET /api/data/<ticker>/<days>` | Zeitreihe mit allen Features |
+| `GET /api/summary/<ticker>` | Aktuellster Stand + Tagesveränderung |
+| `GET /api/ml/<ticker>` | ML-Ergebnisse (Accuracy, Feature Importance, Backtest, Confusion Matrix) |
+
+Das Frontend (`dashboard.html`) bietet vier Tabs: **Kursanalyse** (Chart mit markierten Ausreißern), **ML-Vorhersage** (Signal + Backtest gegen Buy-and-Hold), **Rendite-Vergleich** (mehrere Ticker) und **Portfolio-Simulator**.
+
+## Datenbankschema
+
+**`stock_features`** — ein Datensatz pro Ticker und Handelstag: OHLCV-Rohdaten, alle berechneten Features, Ausreißer-Kennzahlen (`outlier_iforest`, `outlier_score`, `outlier_rf`, `outlier_prob`, `outlier_reason`).
+
+**`ml_results`** — ein Datensatz pro Ticker: Modellgüte (Accuracy, Precision, Recall), Feature Importance, Backtest-Zeitreihe, Konfusionsmatrix, Vorhersage für den nächsten Handelstag.
+
+**`metadata`** — letzte Aktualisierung und Zeilenanzahl pro Ticker.
+
+## Bekannte Einschränkungen
+
+- Das ML-Modell wird pro Ticker unabhängig und auf einem vergleichsweise kleinen Testfenster trainiert (ein Jahr Daten, letzter `TimeSeriesSplit`-Fold); Accuracy schwankt daher deutlich zwischen Tickern und liegt teils nahe am Zufallsniveau.
+- Random-Forest-Klassifikation auf Tagesbasis ist kein „echtes“ Zeitreihenmodell — ARIMA in `analyse.py` dient als methodischer Kontrast, nicht als Konkurrenzmodell für dieselbe Aufgabe.
+- yfinance liefert nicht für jeden Ticker durchgehend saubere Daten (Delisting, Paywall-Fälle); solche Ticker werden übersprungen, nicht mit Dummy-Daten aufgefüllt.
+- Aktuell nur Einzelaktien, kein ETF-Support (andere Datenstruktur bei yfinance).
+
+## Autorinnen
+
+Projekt im Modul *Datenverarbeitung und -bereinigung*, Thema 015, SS 2026.
